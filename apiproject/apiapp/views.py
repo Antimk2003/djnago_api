@@ -44,19 +44,27 @@ class RegisterView(generics.CreateAPIView):
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.select_related('product', 'user').all()
     serializer_class = OrderSerializer
-
-    def get_permissions(self):
-        if self.action in ['update', 'partial_update', 'destroy', 'list', 'retrieve']:
-            # list for admins or specific endpoints; we'll control per endpoint
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated()]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        # Admin can see all, regular users only their orders
+
+        # Admin can see all orders
         if user.is_staff:
             return Order.objects.all().order_by('-created_at')
+
+        # Normal user can see only his orders
         return Order.objects.filter(user=user).order_by('-created_at')
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['patch'], permission_classes=[permissions.IsAdminUser])
+    def update_status(self, request, pk=None):
+        order = self.get_object()
+        new_status = request.data.get('status')
+        if new_status not in dict(Order.STATUS_CHOICES):
+            return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+        order.status = new_status
+        order.save()
+        return Response({"id": order.id, "status": order.status}, status=status.HTTP_200_OK)
